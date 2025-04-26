@@ -1,51 +1,65 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
 import ast
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-from dotenv import load_dotenv
 from openai import OpenAI
+from dotenv import load_dotenv
 import os
+from sklearn.decomposition import PCA
 
-# Load .env variables and OpenAI client
+# 1. Load environment variables and OpenAI client
 load_dotenv()
 api_key = os.getenv('OPENAI_API_KEY')
 client = OpenAI(api_key=api_key)
 
-# 1. Load your CSV
+# 2. Load the CSV file
 df = pd.read_csv('financeData.csv')
 
-# 2. Parse embeddings
+# 3. Parse embeddings (convert string to list)
 df['embedding'] = df['embedding'].apply(ast.literal_eval)
 embeddings = np.vstack(df['embedding'].values)
 
-# 3. Convert labels ("Yes" -> 1, "No" -> 0)
-labels = df['Finance'].apply(lambda x: 1 if x == 'Yes' else 0).values
+# 4. KMeans clustering (k=2) directly on full 1536D embeddings
+kmeans = KMeans(n_clusters=2, random_state=0)
+labels = kmeans.fit_predict(embeddings)
+df['cluster'] = labels  # Assign clusters back to dataframe
 
-# 4. Split into train and test
-X_train, X_test, y_train, y_test = train_test_split(embeddings, labels, test_size=0.2, random_state=42)
+# 5. (Optional) PCA 2D projection for visualization
+# pca = PCA(n_components=2)
+# embeddings_2d = pca.fit_transform(embeddings)
 
-# 5. Train a Logistic Regression model
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
+# plt.figure(figsize=(8, 6))
+# colors = ['red', 'purple']
+# for i in range(2):
+#     cluster_points = embeddings_2d[labels == i]
+#     plt.scatter(cluster_points[:, 0], cluster_points[:, 1], color=colors[i], label=f"Cluster {i}")
+# plt.title("KMeans Clustering of Finance Embeddings (projected for visualization)")
+# plt.xlabel("PC1")
+# plt.ylabel("PC2")
+# plt.legend()
+# plt.grid(True)
+# plt.show()
 
-# 6. Evaluate
-y_pred = model.predict(X_test)
-print("Accuracy:", accuracy_score(y_test, y_pred))
-print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
-print("Classification Report:\n", classification_report(y_test, y_pred))
+# 6. Check what each cluster mostly represents (Finance or Non-Finance)
+cluster_summary = df.groupby('cluster')['Finance'].value_counts()
+#print("\nCluster Meaning Summary:")
+#print(cluster_summary)
 
 # 7. Predict a new sentence
 response = client.embeddings.create(
     model="text-embedding-3-small",
-    input="During the Napoleonic era, Spain became a French puppet state. Concurrent with, and following, the Napoleonic period the Spanish American wars of independence resulted in the loss of most of Spain's territory in the Americas in the 1820s. During the re-establishment of the Bourbon rule in Spain, constitutional monarchy was introduced in 1813."
+    input="To reach profitability within the first year, Velonix must secure a minimum of two on-premise enterprise clients, generating $300,000 - $430,000 in base license revenue. With typical clients opting for the support subscription as well, five deployments with full packages would yield from $695,000 to approximately $1,070,000 in total revenue based on the initial cost of developing the product."
 )
 new_embedding = np.array(response.data[0].embedding).reshape(1, -1)
 
-new_pred = model.predict(new_embedding)
+# 8. Predict the cluster for the new sentence
+predicted_cluster = kmeans.predict(new_embedding)
+print(f"\nThe new sentence belongs to Cluster {predicted_cluster[0]}.")
 
-if new_pred[0] == 1:
-    print("The new sentence is classified as FINANCE.")
-else:
-    print("The new sentence is classified as NON-FINANCE.")
+# 9. Map cluster number to real-world meaning
+# (based on majority labels seen earlier)
+majority_labels = df.groupby('cluster')['Finance'].agg(lambda x: x.value_counts().idxmax())
+
+real_label = majority_labels[predicted_cluster[0]]
+print(f"The new sentence is classified as: {real_label} (based on cluster majority).")

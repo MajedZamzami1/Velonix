@@ -13,6 +13,8 @@ import ast
 from sklearn.cluster import KMeans
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
+import psycopg2
+
 
 load_dotenv() 
 api_key = os.getenv('OPENAI_API_KEY')
@@ -162,6 +164,48 @@ def main():
     print(f"\nTotal chunks: {len(chunks_with_metadata)}")
     print(f"Finance-tagged chunks: {len(finance_chunks)}")
     print(f"Percentage of finance chunks: {(len(finance_chunks)/len(chunks_with_metadata))*100:.2f}%")
+
+    conn = psycopg2.connect(
+    host="localhost",
+    dbname="velonix_db",
+    user="postgres",
+    password="nono4352"
+    )
+    cur = conn.cursor()
+
+    # 2. Insert chunks
+    for chunk in chunks_with_metadata:
+        embedding = chunk["Embedding"]
+        if embedding is not None:
+            embedding_str = "[" + ",".join(map(str, embedding)) + "]"  # convert list to pgvector format
+        else:
+            embedding_str = None
+
+        try:
+            cur.execute("""
+            INSERT INTO document_chunks 
+            (chunk_id, chunk_content, embedding, department_tag, document_name, document_chunk_number, uploader, upload_date, sensitivity)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                chunk["ChunkID"],
+                chunk["ChunkContent"],
+                embedding_str,
+                chunk["DepartmentTag"],
+                chunk["DocumentName"],
+                chunk["documentChunkNumber"],
+                chunk["Uploader"],
+                chunk["UploadDate"],
+                chunk["Sensitivity"]
+            ))
+        except psycopg2.Error as e:  # <-- catch ANY sql error
+            conn.rollback()
+            print(f"Skipping chunk due to error: {e}")
+            continue  # <-- SKIP this chunk and go to the next one
+
+    # 3. Commit and close
+    conn.commit()
+    cur.close()
+    conn.close()
 
 if __name__ == "__main__":
     main()

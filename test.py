@@ -14,7 +14,7 @@ cur = conn.cursor()
 cur.execute("""
 SELECT embedding
 FROM document_chunks
-WHERE chunk_id = 'Technical Specification Document for TIE 202 - Velonix_chunk_1'
+WHERE chunk_id = 'CCS Analysis - TIE212_chunk_4'
 LIMIT 1;
 """)
 

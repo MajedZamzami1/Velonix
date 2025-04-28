@@ -14,12 +14,14 @@ from sklearn.cluster import KMeans
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 import psycopg2
+import unicodedata
+from pgvector.psycopg2 import register_vector
 
 
 load_dotenv() 
 api_key = os.getenv('OPENAI_API_KEY')
 
-def ML(embedding):
+""" def ML():
     client = OpenAI(api_key=api_key)
 
     # 2. Load the CSV file
@@ -34,29 +36,33 @@ def ML(embedding):
     labels = kmeans.fit_predict(embeddings)
     df['cluster'] = labels  # Assign clusters back to dataframe
     cluster_summary = df.groupby('cluster')['Finance'].value_counts()
+    return kmeans
 
-
+def ML(embedding, model):
     new_embedding = np.array(embedding).reshape(1, -1)
     predicted_cluster = kmeans.predict(new_embedding)
     majority_labels = df.groupby('cluster')['Finance'].agg(lambda x: x.value_counts().idxmax())
     real_label = majority_labels[predicted_cluster[0]]
-    return real_label
+    return real_label """
 
-def ML2(embedding):
+def ML2(file, Department):
     client = OpenAI(api_key=api_key)
 
     # 2. Load the CSV file
-    df = pd.read_csv('financeData.csv')
+    df = pd.read_csv(file)
 
     # 3. Parse embeddings (convert string to list)
     df['embedding'] = df['embedding'].apply(ast.literal_eval)
     embeddings = np.vstack(df['embedding'].values)
-    labels = df['Finance'].apply(lambda x: 1 if x == 'Yes' else 0).values
+    labels = df[Department].apply(lambda x: 1 if x == 'Yes' else 0).values
     X_train, X_test, y_train, y_test = train_test_split(embeddings, labels, test_size=0.2, random_state=42)
 
     # 5. Train a Logistic Regression model
     model = LogisticRegression(max_iter=1000)
     model.fit(X_train, y_train)
+    return model
+
+def ML2_predict(embedding, model):    
     new_embedding = np.array(embedding).reshape(1, -1)
 
     new_pred = model.predict(new_embedding)
@@ -86,6 +92,10 @@ def main():
     documents = document_loader.load()
     text = "\n".join(doc.page_content for doc in documents)
     text = re.sub(r'\n', ' ', text) 
+    text = unicodedata.normalize("NFKC", text) 
+
+
+    text = re.sub(r'[^\n\x20-\x7E\u2013\u2014]', '', text)
 
     rec_text_splitter = RecursiveCharacterTextSplitter(separators=[
         "\n\n",
@@ -111,6 +121,8 @@ def main():
     chunksContent = cleaned_chunks
 
     chunks_with_metadata = []
+    model1 = ML2('financeData.csv', 'Finance')
+    model2 = ML2('ITData.csv', 'IT')
     for i, chunk_content in enumerate(chunksContent, 1):  
 
         doc_name = os.path.splitext(document_metadata["filename"])[0]
@@ -126,18 +138,21 @@ def main():
             print(f"Error generating embedding for chunk {i}: {e}")
             embedding = None
 
-        ml_result = ML2(embedding)
+        ml_result = ML2_predict(embedding, model1)
+        ml_result2 = ML2_predict(embedding, model2)
+
+        department_tags = []
         #department_tag = "Finance" if ml_result == "Yes" else None
         if ml_result[0] == 1:
-            department_tag = "Finance"
-        else:
-            department_tag = None
+            department_tags.append("Finance")
+        if ml_result2[0] == 1:
+            department_tags.append("IT")
 
         chunk_metadata = {
             "ChunkID": f"{doc_name}_chunk_{i}",
             "ChunkContent": chunk_content,
             "Embedding": embedding, 
-            "DepartmentTag": department_tag,
+            "DepartmentTags": department_tags,
             "DocumentName": document_metadata["filename"],
             "documentChunkNumber": i,
             "Uploader": document_metadata["uploader"],
@@ -155,7 +170,7 @@ def main():
 
     print("\n[INFO] Finance-Tagged Chunks:")
     print("-" * 80)
-    finance_chunks = [chunk for chunk in chunks_with_metadata if chunk['DepartmentTag'] == "Finance"]
+    finance_chunks = [chunk for chunk in chunks_with_metadata if "Finance" in chunk['DepartmentTags']]
     for chunk in finance_chunks:
         print(f"\nChunk ID: {chunk['ChunkID']}")
         print(f"Content Preview: {chunk['ChunkContent']}")
@@ -171,36 +186,33 @@ def main():
     user="postgres",
     password="nono4352"
     )
+    conn.set_client_encoding('UTF8')
+    register_vector(conn)
     cur = conn.cursor()
 
     # 2. Insert chunks
     for chunk in chunks_with_metadata:
-        embedding = chunk["Embedding"]
-        if embedding is not None:
-            embedding_str = "[" + ",".join(map(str, embedding)) + "]"  # convert list to pgvector format
-        else:
-            embedding_str = None
-
+        
         try:
             cur.execute("""
             INSERT INTO document_chunks 
-            (chunk_id, chunk_content, embedding, department_tag, document_name, document_chunk_number, uploader, upload_date, sensitivity)
+            (chunk_id, chunk_content, embedding, department_tags, document_name, document_chunk_number, uploader, upload_date, sensitivity)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 chunk["ChunkID"],
                 chunk["ChunkContent"],
-                embedding_str,
-                chunk["DepartmentTag"],
+                chunk["Embedding"],
+                chunk["DepartmentTags"],
                 chunk["DocumentName"],
                 chunk["documentChunkNumber"],
                 chunk["Uploader"],
                 chunk["UploadDate"],
                 chunk["Sensitivity"]
             ))
-        except psycopg2.Error as e:  # <-- catch ANY sql error
+        except psycopg2.Error as e:
             conn.rollback()
             print(f"Skipping chunk due to error: {e}")
-            continue  # <-- SKIP this chunk and go to the next one
+            continue
 
     # 3. Commit and close
     conn.commit()

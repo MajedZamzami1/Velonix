@@ -91,6 +91,17 @@ def main():
     document_loader = PyMuPDFLoader(args.filename)
     documents = document_loader.load()
     text = "\n".join(doc.page_content for doc in documents)
+    
+    toc_patterns = [
+        r'Table of Contents.*?(?=\n\n)',  # Matches "Table of Contents" and everything until next blank line
+        r'^\s*\d+\s*\.\s*.*?(?=\n\n)',   # Matches numbered entries (e.g., "1. Introduction")
+        r'^\s*\d+\.\d+\s*.*?(?=\n\n)',   # Matches numbered entries with subnumbers (e.g., "1.1 Introduction")
+        r'^\s*[A-Za-z]\.\s*.*?(?=\n\n)', # Matches lettered entries (e.g., "A. Introduction")
+    ]
+    
+    for pattern in toc_patterns:
+        text = re.sub(pattern, '', text, flags=re.MULTILINE | re.IGNORECASE)
+    
     text = re.sub(r'\n', ' ', text) 
     text = unicodedata.normalize("NFKC", text) 
 
@@ -123,6 +134,7 @@ def main():
     chunks_with_metadata = []
     model1 = ML2('financeData.csv', 'Finance')
     model2 = ML2('ITData.csv', 'IT')
+    model3 = ML2('HRdata.csv', 'HR')
     for i, chunk_content in enumerate(chunksContent, 1):  
 
         doc_name = os.path.splitext(document_metadata["filename"])[0]
@@ -140,6 +152,7 @@ def main():
 
         ml_result = ML2_predict(embedding, model1)
         ml_result2 = ML2_predict(embedding, model2)
+        ml_result3 = ML2_predict(embedding, model3)
 
         department_tags = []
         #department_tag = "Finance" if ml_result == "Yes" else None
@@ -147,6 +160,8 @@ def main():
             department_tags.append("Finance")
         if ml_result2[0] == 1:
             department_tags.append("IT")
+        if ml_result3[0] == 1:
+            department_tags.append("HR")
 
         chunk_metadata = {
             "ChunkID": f"{doc_name}_chunk_{i}",
@@ -171,6 +186,8 @@ def main():
     print("\n[INFO] Finance-Tagged Chunks:")
     print("-" * 80)
     finance_chunks = [chunk for chunk in chunks_with_metadata if "Finance" in chunk['DepartmentTags']]
+    IT_chunks = [chunk for chunk in chunks_with_metadata if "IT" in chunk['DepartmentTags']]
+    HR_chunks = [chunk for chunk in chunks_with_metadata if "HR" in chunk['DepartmentTags']]
     for chunk in finance_chunks:
         print(f"\nChunk ID: {chunk['ChunkID']}")
         print(f"Content Preview: {chunk['ChunkContent']}")
@@ -179,6 +196,12 @@ def main():
     print(f"\nTotal chunks: {len(chunks_with_metadata)}")
     print(f"Finance-tagged chunks: {len(finance_chunks)}")
     print(f"Percentage of finance chunks: {(len(finance_chunks)/len(chunks_with_metadata))*100:.2f}%")
+
+    print(f"IT-tagged chunks: {len(IT_chunks)}")
+    print(f"Percentage of IT chunks: {(len(IT_chunks)/len(chunks_with_metadata))*100:.2f}%")
+
+    print(f"HR-tagged chunks: {len(HR_chunks)}")
+    print(f"Percentage of HR chunks: {(len(HR_chunks)/len(chunks_with_metadata))*100:.2f}%")
 
     conn = psycopg2.connect(
     host="localhost",

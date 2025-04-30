@@ -8,20 +8,25 @@ import unicodedata
 
 def clean_text(text):
 
+    
+    # Remove table of contents
+    # Common patterns for table of contents
+    toc_patterns = [
+        r'Table of Contents.*?(?=\n\n)',  # Matches "Table of Contents" and everything until next blank line
+        r'Contents.*?(?=\n\n)',           # Matches "Contents" and everything until next blank line
+        r'^\s*\d+\s*\.\s*.*?(?=\n\n)',   # Matches numbered entries (e.g., "1. Introduction")
+        r'^\s*\d+\.\d+\s*.*?(?=\n\n)',   # Matches numbered entries with subnumbers (e.g., "1.1 Introduction")
+        r'^\s*[A-Za-z]\.\s*.*?(?=\n\n)', # Matches lettered entries (e.g., "A. Introduction")
+    ]
+    
+    for pattern in toc_patterns:
+        text = re.sub(pattern, '', text, flags=re.MULTILINE | re.IGNORECASE)
+    
+    text = re.sub(r'\n', ' ', text) 
     text = unicodedata.normalize("NFKC", text) 
 
 
     text = re.sub(r'[^\n\x20-\x7E\u2013\u2014]', '', text)
-
-    
-    text = re.sub(r'\n\s*\n+', '', text)  
-
-
-    text = re.sub(r'[ \t]+', ' ', text)
-
-    text = re.sub(r' *\n *', '\n', text)
-    text = text.strip()
-
     return text
 
 def extract_text(file_path):

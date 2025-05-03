@@ -1,0 +1,12 @@
+-- Enable UUID generation
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chunk_content TEXT,
+    embedding VECTOR(1536),
+    is_finance BOOLEAN DEFAULT FALSE,
+    is_it BOOLEAN DEFAULT FALSE,
+    is_hr BOOLEAN DEFAULT FALSE
+);

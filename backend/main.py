@@ -1,0 +1,132 @@
+import sys
+import os
+from pathlib import Path
+
+# Add the parent directory to Python path to import existing modules
+sys.path.append(str(Path(__file__).parent.parent.parent))
+
+from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
+import psycopg2
+from dotenv import load_dotenv
+from Roles import get_db_connection, add_user, delete_user, edit_user_role
+from RAG import authenticate_user, get_relevant_chunks, build_final_prompt, generate_answer, embed_prompt_from_text
+from DocIngest import process_pdf_file
+
+# Load environment variables
+load_dotenv()
+
+app = FastAPI(
+    title="Velonix API",
+    description="API for Velonix Knowledge Base System",
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json"
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class UserAuth(BaseModel):
+    name: str
+
+class Question(BaseModel):
+    text: str
+    user: UserAuth
+
+class RoleUpdate(BaseModel):
+    name: str
+    finance: bool
+    hr: bool
+    it: bool
+
+@app.post("/auth")
+async def authenticate(user: UserAuth):
+    conn = get_db_connection()
+    try:
+        session = authenticate_user(conn, user.name)
+        if not session['name']:
+            raise HTTPException(status_code=401, detail="Authentication failed")
+        return session
+    finally:
+        conn.close()
+
+@app.post("/ask")
+async def ask_question(question: Question):
+    conn = get_db_connection()
+    try:
+        session = authenticate_user(conn, question.user.name)
+        if not session['name']:
+            raise HTTPException(status_code=401, detail="Authentication failed")
+        
+        embedding = embed_prompt_from_text(question.text)
+        chunks = get_relevant_chunks(conn, session, embedding)
+        if not chunks:
+            return {"answer": "No relevant information found."}
+        
+        final_prompt = build_final_prompt(chunks, question.text)
+        answer = generate_answer(final_prompt)
+        return {"answer": answer}
+    finally:
+        conn.close()
+
+@app.get("/roles")
+async def list_roles():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT name, finance, hr, it FROM roles")
+            roles = cur.fetchall()
+            return [{"name": name, "finance": finance, "hr": hr, "it": it} 
+                   for name, finance, hr, it in roles]
+    finally:
+        conn.close()
+
+@app.post("/roles")
+async def update_role(role: RoleUpdate):
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE roles 
+                SET finance = %s, hr = %s, it = %s 
+                WHERE name = %s
+                """,
+                (role.finance, role.hr, role.it, role.name)
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="User not found")
+            conn.commit()
+            return {"message": "Role updated successfully"}
+    finally:
+        conn.close()
+
+@app.post("/upload")
+async def upload_document(file: UploadFile = File(...)):
+    import traceback
+    try:
+        contents = await file.read()
+        temp_path = f"temp_{file.filename}"
+        with open(temp_path, "wb") as f:
+            f.write(contents)
+        process_pdf_file(temp_path)
+        os.remove(temp_path)
+        return {"message": "Document processed successfully"}
+    except Exception as e:
+        tb = traceback.format_exc()
+        print(tb)  # This will print the full traceback to your terminal
+        return {"error": str(e), "traceback": tb}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000) 

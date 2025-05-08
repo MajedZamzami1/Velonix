@@ -14,35 +14,27 @@ def get_db_connection():
         password="nono4352"
     )
 
-def authenticate_user(conn):
+def authenticate_user(conn, name):
     session = {
         'name': None,
         'finance': False,
         'hr': False,
         'it': False
     }
-    
-    name = input("Enter your name: ").strip()
     if not name:
-        print("Error: Name cannot be empty")
         return session
-
     with conn.cursor() as cur:
         cur.execute(
             "SELECT finance, hr, it FROM roles WHERE name = %s",
             (name,)
         )
         user = cur.fetchone()
-        
         if user:
             finance, hr, it = user
             session['name'] = name
             session['finance'] = finance
             session['hr'] = hr
             session['it'] = it
-        else:
-            print(f"Error: User '{name}' not found")
-    
     return session
 
 def get_user_prompt():
@@ -53,6 +45,14 @@ def get_user_prompt():
     return prompt
 
 def embed_prompt(prompt):
+    client = OpenAI()
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=prompt
+    )
+    return response.data[0].embedding
+
+def embed_prompt_from_text(prompt):
     client = OpenAI()
     response = client.embeddings.create(
         model="text-embedding-3-small",
@@ -84,7 +84,7 @@ def get_relevant_chunks(conn, session, embedding, limit=5):
         # Query to get relevant chunks
         cur.execute(
             f"""
-            SELECT id, chunk_content, embedding
+            SELECT id, chunk_content, is_finance, is_hr, is_it, embedding
             FROM document_chunks
             WHERE {where_clause}
             ORDER BY embedding <#> %s::vector
@@ -99,21 +99,16 @@ def get_relevant_chunks(conn, session, embedding, limit=5):
 def build_final_prompt(chunks, user_question):
     # System instructions
     system_instruction = """You are an AI assistant helping answer questions using internal company knowledge. 
-Only use the context provided. If no answer can be found, say: "I'm sorry, I could not find an answer."
-
-"""
-    
+Only use the context provided. If no answer can be found, say: \"I'm sorry, I could not find an answer.\"\n\n"""
     # Build context section
     context_section = "Context:\n"
-    for i, (_, content, _) in enumerate(chunks, 1):
+    for i, chunk in enumerate(chunks, 1):
+        content = chunk[1]
         context_section += f"[{i}] {content.strip()}\n"
-    
     # Add user question
     user_question_section = f"\nQuestion: {user_question}"
-    
     # Combine all parts
     final_prompt = system_instruction + context_section + user_question_section
-    
     return final_prompt
 
 def generate_answer(prompt):
@@ -124,7 +119,7 @@ def generate_answer(prompt):
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
+            temperature=0.2,
             max_tokens=500
         )
         return response.choices[0].message.content
@@ -137,7 +132,7 @@ def main():
     
     conn = get_db_connection()
     try:
-        session = authenticate_user(conn)
+        session = authenticate_user(conn, input("Enter your name: ").strip())
         if not session['name']:
             print("Authentication failed. Exiting...")
             return

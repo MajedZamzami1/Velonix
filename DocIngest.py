@@ -31,15 +31,11 @@ def ML2_predict(embedding, model):
     new_embedding = np.array(embedding).reshape(1, -1)
     return model.predict(new_embedding)
 
-def main():
-    parser = argparse.ArgumentParser(description="Velonix Document Ingestion")
-    parser.add_argument('--filename', required=True, help='Path to the PDF file')
-    args = parser.parse_args()
-
+def process_pdf_file(filepath):
     client = OpenAI(api_key=api_key)
 
-    print(f"\n[INFO] Extracting text from {args.filename}...")
-    document_loader = PyMuPDFLoader(args.filename)
+    print(f"\n[INFO] Extracting text from {filepath}...")
+    document_loader = PyMuPDFLoader(filepath)
     documents = document_loader.load()
     text = "\n".join(doc.page_content for doc in documents)
 
@@ -148,6 +144,12 @@ def main():
     conn.commit()
     cur.close()
     conn.close()
+
+def main():
+    parser = argparse.ArgumentParser(description="Velonix Document Ingestion")
+    parser.add_argument('--filename', required=True, help='Path to the PDF file')
+    args = parser.parse_args()
+    process_pdf_file(args.filename)
 
 if __name__ == "__main__":
     main()

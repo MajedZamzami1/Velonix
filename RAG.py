@@ -119,7 +119,7 @@ def generate_answer(prompt):
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2,
+            temperature=0.7,
             max_tokens=500
         )
         return response.choices[0].message.content

@@ -169,7 +169,7 @@ function App() {
                 <div className="max-w-7xl mx-auto px-4">
                     <div className="flex justify-between h-16">
                         <div className="flex items-center">
-                            <h1 className="text-xl font-bold">Velonix Knowledge Base</h1>
+                            <h1 className="text-xl font-bold">Velonix RAG System</h1>
                         </div>
                         <div className="flex items-center">
                             <span className="mr-4">Welcome, {user.name}</span>

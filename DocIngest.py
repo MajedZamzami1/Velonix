@@ -74,9 +74,9 @@ def process_pdf_file(filepath):
     chunksContent = cleaned_chunks
 
     chunks_with_metadata = []
-    model1 = ML2('financeData.csv', 'Finance')
-    model2 = ML2('ITData.csv', 'IT')
-    model3 = ML2('HRdata.csv', 'HR')
+    model1 = ML2('Finance2.csv', 'Finance')
+    model2 = ML2('IT2.csv', 'IT')
+    model3 = ML2('HR2.csv', 'HR')
 
     for i, chunk_content in enumerate(chunksContent, 1):  
         try:

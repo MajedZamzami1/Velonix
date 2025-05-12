@@ -100,7 +100,7 @@ async def list_roles():
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT name, finance, hr, it FROM roles")
+            cur.execute("SELECT name, finance, hr, it FROM roles ORDER BY name")
             roles = cur.fetchall()
             return [{"name": name, "finance": finance, "hr": hr, "it": it} 
                    for name, finance, hr, it in roles]

@@ -13,7 +13,10 @@ import psycopg2
 from dotenv import load_dotenv
 from Roles import get_db_connection, add_user, delete_user, edit_user_role
 from RAG import authenticate_user, get_relevant_chunks, build_final_prompt, generate_answer, embed_prompt_from_text
-from DocIngest import process_pdf_file
+from DocIngest import process_pdf_file, process_pdf_chunks, save_chunks_to_db, process_pdf_chunks_stream
+from fastapi.responses import StreamingResponse
+import json
+import tempfile
 
 # Load environment variables
 load_dotenv()
@@ -135,13 +138,33 @@ async def upload_document(file: UploadFile = File(...)):
         temp_path = f"temp_{file.filename}"
         with open(temp_path, "wb") as f:
             f.write(contents)
-        process_pdf_file(temp_path)
+            
+        # Process the file and get chunk information
+        result = process_pdf_file(temp_path)
         os.remove(temp_path)
-        return {"message": "Document processed successfully"}
+        return result
     except Exception as e:
         tb = traceback.format_exc()
-        print(tb)  # This will print the full traceback to your terminal
+        print(tb)
         return {"error": str(e), "traceback": tb}
+
+@app.post("/upload-stream")
+async def upload_document_stream(file: UploadFile = File(...)):
+    import tempfile
+    import os
+    import json
+
+    contents = await file.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(contents)
+        tmp_path = tmp.name
+
+    def stream_chunks():
+        for chunk in process_pdf_chunks_stream(tmp_path):
+            yield f"data: {json.dumps(chunk)}\n\n"
+        os.remove(tmp_path)
+
+    return StreamingResponse(stream_chunks(), media_type="text/event-stream")
 
 @app.post("/users")
 async def add_user_api(user: NewUser):

@@ -31,8 +31,9 @@ def ML2_predict(embedding, model):
     new_embedding = np.array(embedding).reshape(1, -1)
     return model.predict(new_embedding)
 
-def process_pdf_file(filepath):
+def process_pdf_chunks(filepath):
     client = OpenAI(api_key=api_key)
+    chunks_info = []
 
     print(f"\n[INFO] Extracting text from {filepath}...")
     document_loader = PyMuPDFLoader(filepath)
@@ -89,9 +90,9 @@ def process_pdf_file(filepath):
             print(f"Error generating embedding for chunk {i}: {e}")
             embedding = None
 
-        is_finance = ML2_predict(embedding, model1)[0] == 1
-        is_it = ML2_predict(embedding, model2)[0] == 1
-        is_hr = ML2_predict(embedding, model3)[0] == 1
+        is_finance = bool(ML2_predict(embedding, model1)[0] == 1)
+        is_it = bool(ML2_predict(embedding, model2)[0] == 1)
+        is_hr = bool(ML2_predict(embedding, model3)[0] == 1)
 
         chunk_metadata = {
             "chunk_content": chunk_content,
@@ -101,6 +102,18 @@ def process_pdf_file(filepath):
             "is_hr": is_hr
         }
         chunks_with_metadata.append(chunk_metadata)
+        
+        # Add chunk info for frontend
+        chunk_info = {
+            "chunk_number": i,
+            "content": chunk_content[:1000] + "..." if len(chunk_content) > 100 else chunk_content,
+            "tags": {
+                "finance": is_finance,
+                "it": is_it,
+                "hr": is_hr
+            }
+        }
+        chunks_info.append(chunk_info)
 
         if i % 5 == 0:  
             print(f"Processed {i} chunks")
@@ -112,6 +125,9 @@ def process_pdf_file(filepath):
         print(f"{label}-tagged chunks: {count}")
         print(f"Percentage of {label} chunks: {(count/len(chunks_with_metadata))*100:.2f}%")
 
+    return chunks_with_metadata, chunks_info
+
+def save_chunks_to_db(chunks_with_metadata):
     conn = psycopg2.connect(
         host="localhost",
         dbname="velonix_db",
@@ -131,10 +147,9 @@ def process_pdf_file(filepath):
             """, (
                 chunk["chunk_content"],
                 chunk["embedding"],
-                bool(chunk["is_finance"]),
-                bool(chunk["is_it"]),
-                bool(chunk["is_hr"])
-
+                chunk["is_finance"],
+                chunk["is_it"],
+                chunk["is_hr"]
             ))
         except psycopg2.Error as e:
             conn.rollback()
@@ -144,6 +159,87 @@ def process_pdf_file(filepath):
     conn.commit()
     cur.close()
     conn.close()
+
+def process_pdf_file(filepath):
+    chunks_with_metadata, chunks_info = process_pdf_chunks(filepath)
+    save_chunks_to_db(chunks_with_metadata)
+    return {
+        "total_chunks": len(chunks_with_metadata),
+        "chunks_info": chunks_info
+    }
+
+def process_pdf_chunks_stream(filepath):
+    client = OpenAI(api_key=api_key)
+    print(f"\n[INFO] Extracting text from {filepath}...")
+    document_loader = PyMuPDFLoader(filepath)
+    documents = document_loader.load()
+    text = "\n".join(doc.page_content for doc in documents)
+
+    toc_patterns = [
+        r'Table of Contents.*?(?=\n\n)',
+        r'^\s*\d+\s*\.\s*.*?(?=\n\n)',
+        r'^\s*\d+\.\d+\s*.*?(?=\n\n)',
+        r'^\s*[A-Za-z]\.\s*.*?(?=\n\n)',
+    ]
+    for pattern in toc_patterns:
+        text = re.sub(pattern, '', text, flags=re.MULTILINE | re.IGNORECASE)
+
+    text = re.sub(r'\n', ' ', text)
+    text = unicodedata.normalize("NFKC", text)
+    text = re.sub(r'[^\n\x20-\x7E\u2013\u2014]', '', text)
+
+    rec_text_splitter = RecursiveCharacterTextSplitter(
+        separators=["\n\n", ".", "\uff0e", "\u3002"],
+        chunk_size=1000,
+        chunk_overlap=0,
+        length_function=len,
+        is_separator_regex=False
+    )
+    chunksContent = rec_text_splitter.split_text(text)
+
+    cleaned_chunks = []
+    for i, chunk in enumerate(chunksContent):
+        chunk = chunk.strip()
+        if not chunk.endswith(('.', "\uff0e", "\u3002", '!', '?')):
+            if i < len(chunksContent) - 1 and chunksContent[i + 1].strip():
+                chunk += ' ' + chunksContent[i + 1].split('.')[0] + '.'
+                chunksContent[i + 1] = '.'.join(chunksContent[i + 1].split('.')[1:]).strip()
+        if chunk.strip():
+            cleaned_chunks.append(chunk)
+    chunksContent = cleaned_chunks
+
+    model1 = ML2('Finance2.csv', 'Finance')
+    model2 = ML2('IT2.csv', 'IT')
+    model3 = ML2('HR2.csv', 'HR')
+
+    for i, chunk_content in enumerate(chunksContent, 1):
+        try:
+            response = client.embeddings.create(
+                model="text-embedding-3-small",
+                input=chunk_content
+            )
+            embedding = response.data[0].embedding
+        except Exception as e:
+            print(f"Error generating embedding for chunk {i}: {e}")
+            embedding = None
+
+        is_finance = bool(ML2_predict(embedding, model1)[0] == 1)
+        is_it = bool(ML2_predict(embedding, model2)[0] == 1)
+        is_hr = bool(ML2_predict(embedding, model3)[0] == 1)
+
+        chunk_info = {
+            "chunk_number": i,
+            "content": chunk_content[:1000] + "..." if len(chunk_content) > 100 else chunk_content,
+            "tags": {
+                "finance": is_finance,
+                "it": is_it,
+                "hr": is_hr
+            }
+        }
+        yield chunk_info
+
+        if i % 5 == 0:
+            print(f"Processed {i} chunks")
 
 def main():
     parser = argparse.ArgumentParser(description="Velonix Document Ingestion")

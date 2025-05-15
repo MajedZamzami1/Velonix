@@ -10,6 +10,9 @@ function App() {
   const [error, setError] = useState(null);
   const [chunks, setChunks] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showAddRole, setShowAddRole] = useState(false);
+  const [newRole, setNewRole] = useState({ name: '', finance: false, hr: false, it: false });
+  const [showChunks, setShowChunks] = useState(false);
   const chunkListRef = useRef(null);
 
   useEffect(() => {
@@ -26,6 +29,16 @@ function App() {
       chunkListRef.current.scrollTop = chunkListRef.current.scrollHeight;
     }
   }, [chunks]);
+
+  useEffect(() => {
+    if (activeTab !== 'upload') {
+      setChunks([]);
+      setError(null);
+      setIsLoading(false);
+      const fileInput = document.getElementById('fileInput');
+      if (fileInput) fileInput.value = '';
+    }
+  }, [activeTab]);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -76,6 +89,8 @@ function App() {
       const data = await response.json();
       if (response.ok) {
         setAnswer(data.answer);
+        setChunks(data.chunks || []);
+        setShowChunks(false);
       } else {
         setError('Failed to get answer');
       }
@@ -151,9 +166,50 @@ function App() {
     }
   };
 
+  const handleDeleteRole = async (name) => {
+    setError(null);
+    try {
+      const response = await fetch(`http://localhost:8000/users/${name}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        fetchRoles();
+        if (name === user.name) {
+          handleLogout();
+        }
+      } else {
+        setError('Failed to delete role');
+      }
+    } catch (error) {
+      setError('Failed to delete role');
+    }
+  };
+
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem('user');
+  };
+
+  const handleAddRole = async (e) => {
+    e.preventDefault();
+    setError(null);
+    try {
+      const response = await fetch('http://localhost:8000/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRole)
+      });
+      if (response.ok) {
+        setShowAddRole(false);
+        setNewRole({ name: '', finance: false, hr: false, it: false });
+        fetchRoles();
+      } else {
+        const data = await response.json();
+        setError(data.detail || 'Failed to add role');
+      }
+    } catch (error) {
+      setError('Failed to add role');
+    }
   };
 
   if (!user) {
@@ -257,16 +313,118 @@ function App() {
               </button>
             </form>
             {answer && (
-              <div className="mt-6 p-4 bg-gray-50 rounded">
-                <h3 className="font-bold mb-2">Answer:</h3>
-                <p>{answer}</p>
-              </div>
+              <>
+                <div className="mt-6 p-4 bg-gray-50 rounded relative">
+                  <h3 className="font-bold mb-2">Answer:</h3>
+                  <p className="mb-2">{answer}</p>
+                </div>
+                <div className="mt-2 flex items-center">
+                  <button
+                    onClick={() => setShowChunks(!showChunks)}
+                    className="text-blue-500 hover:text-blue-700 text-sm"
+                  >
+                    {showChunks ? 'Hide Chunks' : 'Show Chunks'}
+                  </button>
+                </div>
+                {showChunks && chunks.length > 0 && (
+                  <div className="mt-4 border-t pt-4">
+                    <h4 className="font-semibold mb-2">Chunks Used:</h4>
+                    <div className="space-y-3">
+                      {chunks.map((chunk, index) => (
+                        <div key={index} className="p-3 bg-white rounded-lg shadow-sm">
+                          <div className="flex justify-between items-start mb-2">
+                            <p className="text-gray-700 text-sm flex-1 mr-4">{chunk.content}</p>
+                            <div className="flex gap-2">
+                              {(chunk.is_finance || chunk.tags?.finance) && (
+                                <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                  Finance
+                                </span>
+                              )}
+                              {(chunk.is_it || chunk.tags?.it) && (
+                                <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                                  IT
+                                </span>
+                              )}
+                              {(chunk.is_hr || chunk.tags?.hr) && (
+                                <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-semibold">
+                                  HR
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
         {activeTab === 'roles' && (
           <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-bold mb-4">Manage Roles</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold">Manage Roles</h2>
+              <button
+                onClick={() => setShowAddRole(!showAddRole)}
+                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+              >
+                {showAddRole ? 'Cancel' : 'Add New Role'}
+              </button>
+            </div>
+            
+            {showAddRole && (
+              <form onSubmit={handleAddRole} className="mb-6 p-4 border rounded-lg bg-gray-50">
+                <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newRole.name}
+                    onChange={(e) => setNewRole({ ...newRole, name: e.target.value })}
+                    className="w-full p-2 border rounded"
+                    required
+                  />
+                </div>
+                <div className="flex space-x-4 mb-4">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newRole.finance}
+                      onChange={(e) => setNewRole({ ...newRole, finance: e.target.checked })}
+                      className="mr-1"
+                    />
+                    Finance
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newRole.hr}
+                      onChange={(e) => setNewRole({ ...newRole, hr: e.target.checked })}
+                      className="mr-1"
+                    />
+                    HR
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newRole.it}
+                      onChange={(e) => setNewRole({ ...newRole, it: e.target.checked })}
+                      className="mr-1"
+                    />
+                    IT
+                  </label>
+                </div>
+                <button
+                  type="submit"
+                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                >
+                  Add Role
+                </button>
+              </form>
+            )}
+
             <div className="space-y-4">
               {roles.map((role) => (
                 <div key={role.name} className="flex items-center space-x-4">
@@ -314,6 +472,12 @@ function App() {
                       />
                       IT
                     </label>
+                    <button
+                      onClick={() => handleDeleteRole(role.name)}
+                      className="ml-4 bg-red-500 text-white px-3 py-1 rounded hover:bg-red-600 text-sm"
+                    >
+                      Delete
+                    </button>
                   </div>
                 </div>
               ))}
@@ -369,17 +533,17 @@ function App() {
                       <div className="flex items-center justify-between mb-1">
                         <span className="font-medium text-gray-700">Chunk {chunk.chunk_number}</span>
                         <div className="flex gap-2">
-                          {chunk.tags.finance && (
+                          {chunk.tags?.finance && (
                             <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
                               Finance
                             </span>
                           )}
-                          {chunk.tags.it && (
+                          {chunk.tags?.it && (
                             <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
                               IT
                             </span>
                           )}
-                          {chunk.tags.hr && (
+                          {chunk.tags?.hr && (
                             <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-semibold">
                               HR
                             </span>

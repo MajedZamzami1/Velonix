@@ -229,7 +229,8 @@ def process_pdf_chunks_stream(filepath):
 
         chunk_info = {
             "chunk_number": i,
-            "content": chunk_content[:1000] + "..." if len(chunk_content) > 100 else chunk_content,
+            "content": chunk_content,
+            "embedding": embedding,
             "tags": {
                 "finance": is_finance,
                 "it": is_it,

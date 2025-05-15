@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 import psycopg2
 from dotenv import load_dotenv
-from Roles import get_db_connection, add_user, delete_user, edit_user_role
+from Roles import get_db_connection, add_user, edit_user_role, delete_user
 from RAG import authenticate_user, get_relevant_chunks, build_final_prompt, generate_answer, embed_prompt_from_text
 from DocIngest import process_pdf_file, process_pdf_chunks, save_chunks_to_db, process_pdf_chunks_stream
 from fastapi.responses import StreamingResponse
@@ -160,9 +160,26 @@ async def upload_document_stream(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     def stream_chunks():
-        for chunk in process_pdf_chunks_stream(tmp_path):
-            yield f"data: {json.dumps(chunk)}\n\n"
-        os.remove(tmp_path)
+        try:
+            # Process and stream chunks one by one
+            for chunk in process_pdf_chunks_stream(tmp_path):
+                # Save chunk to database
+                save_chunks_to_db([{
+                    "chunk_content": chunk["content"],
+                    "embedding": chunk["embedding"],
+                    "is_finance": chunk["tags"]["finance"],
+                    "is_it": chunk["tags"]["it"],
+                    "is_hr": chunk["tags"]["hr"]
+                }])
+                # Send a frontend-friendly version of the chunk
+                frontend_chunk = {
+                    "chunk_number": chunk["chunk_number"],
+                    "content": chunk["content"][:1000] + "..." if len(chunk["content"]) > 100 else chunk["content"],
+                    "tags": chunk["tags"]
+                }
+                yield f"data: {json.dumps(frontend_chunk)}\n\n"
+        finally:
+            os.remove(tmp_path)
 
     return StreamingResponse(stream_chunks(), media_type="text/event-stream")
 

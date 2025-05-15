@@ -98,7 +98,7 @@ def get_relevant_chunks(conn, session, embedding, limit=5):
 
 def build_final_prompt(chunks, user_question):
     # System instructions
-    system_instruction = """You are an AI assistant helping answer questions using Velonix's internal company knowledge. 
+    system_instruction = """You are an AI assistant helping answer questions using internal company knowledge. 
 Only use the context provided. If no answer can be found, say: \"I'm sorry, I could not find an answer.\"\n\n"""
     # Build context section
     context_section = "Context:\n"
